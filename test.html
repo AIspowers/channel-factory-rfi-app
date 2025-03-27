@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RFI API Connection Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 5px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .success {
+      background-color: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .error {
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .info {
+      background-color: #cce5ff;
+      border: 1px solid #b8daff;
+      color: #004085;
+    }
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    button:hover {
+      background-color: #0069d9;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      margin-right: 10px;
+      border: 3px solid rgba(0,123,255,.3);
+      border-radius: 50%;
+      border-top-color: #007bff;
+      animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    h3 {
+      margin-top: 30px;
+    }
+    #networkInfo {
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>RFI API Connection Test</h1>
+  <p>This tool diagnoses connection issues with the Channel Factory RFI application.</p>
+  
+  <div id="networkInfo" class="info result">
+    <strong>Running network tests...</strong>
+  </div>
+  
+  <div>
+    <button id="testHealthBtn"><span class="spinner" style="display: none;"></span>Test Health Endpoint</button>
+    <button id="testCORSBtn"><span class="spinner" style="display: none;"></span>Test CORS Configuration</button>
+    <button id="testSearchBtn"><span class="spinner" style="display: none;"></span>Test Search Endpoint</button>
+    <button id="clearResultsBtn">Clear Results</button>
+  </div>
+  
+  <h3>Test Results</h3>
+  <div id="results"></div>
+
+  <h3>Common Issues and Solutions</h3>
+  <div class="info result">
+    <p><strong>If you see "Failed to fetch" errors:</strong></p>
+    <ul>
+      <li>The API might be in a cold start state (when it hasn't been used recently)</li>
+      <li>Try running the Health Endpoint test and waiting 10-15 seconds before retrying</li>
+      <li>Check if your browser's security settings are blocking cross-origin requests</li>
+      <li>Make sure you're not using a VPN or network that might block API requests</li>
+    </ul>
+    
+    <p><strong>If you see CORS errors:</strong></p>
+    <ul>
+      <li>The API might not be configured to accept requests from your current domain</li>
+      <li>Try accessing the application directly from https://aispowers.github.io/channel-factory-rfi-app/</li>
+    </ul>
+  </div>
+
+  <script>
+    const API_URL = 'https://channel-factory-rfi.onrender.com';
+    const resultsContainer = document.getElementById('results');
+    const networkInfo = document.getElementById('networkInfo');
+    
+    // Function to add result to the page
+    function addResult(success, message, details = '') {
+      const resultElement = document.createElement('div');
+      resultElement.className = `result ${success ? 'success' : 'error'}`;
+      resultElement.innerHTML = `
+        <strong>${success ? 'SUCCESS' : 'ERROR'}</strong>: ${message}
+        ${details ? `<hr><pre>${details}</pre>` : ''}
+      `;
+      resultsContainer.prepend(resultElement);
+    }
+    
+    // Function to show spinner on button
+    function showButtonSpinner(buttonId, show = true) {
+      const button = document.getElementById(buttonId);
+      const spinner = button.querySelector('.spinner');
+      if (spinner) {
+        spinner.style.display = show ? 'inline-block' : 'none';
+      }
+      button.disabled = show;
+    }
+    
+    // Get basic network information
+    async function getNetworkInfo() {
+      try {
+        // Get public IP address
+        const ipResponse = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipResponse.json();
+        
+        // Browser information
+        const browserInfo = {
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          cookiesEnabled: navigator.cookieEnabled,
+          doNotTrack: navigator.doNotTrack,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        };
+        
+        // Connection info
+        const connectionInfo = {};
+        if (navigator.connection) {
+          connectionInfo.effectiveType = navigator.connection.effectiveType;
+          connectionInfo.downlink = navigator.connection.downlink;
+          connectionInfo.rtt = navigator.connection.rtt;
+          connectionInfo.saveData = navigator.connection.saveData;
+        }
+        
+        // Update network info div
+        networkInfo.innerHTML = `
+          <strong>Network Information:</strong>
+          <ul>
+            <li>Public IP: ${ipData.ip}</li>
+            <li>Browser: ${browserInfo.userAgent}</li>
+            <li>Connection: ${connectionInfo.effectiveType || 'Unknown'}</li>
+            <li>Timezone: ${browserInfo.timezone}</li>
+          </ul>
+        `;
+      } catch (error) {
+        networkInfo.innerHTML = `<strong>Network Information:</strong> Unable to retrieve (${error.message})`;
+      }
+    }
+    
+    // Test the health endpoint
+    document.getElementById('testHealthBtn').addEventListener('click', async () => {
+      showButtonSpinner('testHealthBtn', true);
+      try {
+        const startTime = new Date();
+        const response = await fetch(`${API_URL}/health`, { 
+          cache: 'no-store' 
+        });
+        const endTime = new Date();
+        const timeElapsed = endTime - startTime;
+        
+        if (response.ok) {
+          const data = await response.json();
+          addResult(true, `Health check successful (${timeElapsed}ms)`, JSON.stringify(data, null, 2));
+        } else {
+          addResult(false, `Health check failed with status: ${response.status}`, await response.text());
+        }
+      } catch (error) {
+        addResult(false, 'Health check failed with error', error.toString());
+      } finally {
+        showButtonSpinner('testHealthBtn', false);
+      }
+    });
+    
+    // Test CORS configuration
+    document.getElementById('testCORSBtn').addEventListener('click', async () => {
+      showButtonSpinner('testCORSBtn', true);
+      try {
+        const corsStartTime = new Date();
+        addResult(true, 'Running CORS preflight test...', '');
+        
+        // Test OPTIONS request
+        const optionsResponse = await fetch(`${API_URL}/health`, { 
+          method: 'OPTIONS',
+          headers: {
+            'Origin': window.location.origin,
+            'Access-Control-Request-Method': 'GET'
+          },
+          cache: 'no-store'
+        });
+        
+        // Get CORS headers
+        const corsHeaders = {};
+        corsHeaders['Access-Control-Allow-Origin'] = optionsResponse.headers.get('Access-Control-Allow-Origin');
+        corsHeaders['Access-Control-Allow-Methods'] = optionsResponse.headers.get('Access-Control-Allow-Methods');
+        corsHeaders['Access-Control-Allow-Headers'] = optionsResponse.headers.get('Access-Control-Allow-Headers');
+        
+        const corsEndTime = new Date();
+        const corsTimeElapsed = corsEndTime - corsStartTime;
+        
+        if (optionsResponse.ok) {
+          addResult(true, `CORS preflight test successful (${corsTimeElapsed}ms)`, 
+                  `CORS Headers:\n${JSON.stringify(corsHeaders, null, 2)}`);
+        } else {
+          addResult(false, `CORS preflight test failed with status: ${optionsResponse.status}`, 
+                  `Response headers: ${JSON.stringify(corsHeaders, null, 2)}`);
+        }
+      } catch (error) {
+        addResult(false, 'CORS test failed with error', error.toString());
+      } finally {
+        showButtonSpinner('testCORSBtn', false);
+      }
+    });
+    
+    // Test the search endpoint with a simple query
+    document.getElementById('testSearchBtn').addEventListener('click', async () => {
+      showButtonSpinner('testSearchBtn', true);
+      try {
+        const startTime = new Date();
+        const response = await fetch(`${API_URL}/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': window.location.origin
+          },
+          body: JSON.stringify({
+            question: 'What is Channel Factory?'
+          }),
+          cache: 'no-store'
+        });
+        const endTime = new Date();
+        const timeElapsed = endTime - startTime;
+        
+        if (response.ok) {
+          const data = await response.json();
+          addResult(true, `Search request successful (${timeElapsed}ms)`, 
+                  `Response (truncated):\n${JSON.stringify(data, null, 2).substring(0, 500)}...`);
+        } else {
+          addResult(false, `Search request failed with status: ${response.status}`, await response.text());
+        }
+      } catch (error) {
+        addResult(false, 'Search request failed with error', error.toString());
+      } finally {
+        showButtonSpinner('testSearchBtn', false);
+      }
+    });
+    
+    // Clear results
+    document.getElementById('clearResultsBtn').addEventListener('click', () => {
+      resultsContainer.innerHTML = '';
+    });
+    
+    // Initialize
+    getNetworkInfo();
+  </script>
+</body>
+</html>
