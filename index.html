@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RFI Powered by Channel Factory</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #111;
+      color: white;
+      min-height: 100vh;
+    }
+    .app-container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 {
+      color: #f44336;
+      margin-bottom: 20px;
+    }
+    .chat-container {
+      background-color: #222;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    .question-form {
+      display: flex;
+      margin-bottom: 20px;
+      position: relative;
+    }
+    textarea {
+      width: 100%;
+      padding: 12px 50px 12px 15px;
+      border-radius: 20px;
+      border: 1px solid #444;
+      background-color: #333;
+      color: white;
+      resize: none;
+      font-size: 16px;
+      min-height: 46px;
+    }
+    .send-button {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      transform: translateY(-8px);
+      width: 28px;
+      height: 28px;
+      background-color: #f44336;
+      border: none;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .response-container {
+      white-space: pre-wrap;
+      line-height: 1.5;
+    }
+    .note {
+      margin-top: 30px;
+      padding: 10px;
+      background-color: #333;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .loading {
+      display: inline-block;
+      margin-top: 20px;
+      margin-bottom: 20px;
+      font-style: italic;
+      color: #aaa;
+    }
+    .history-item {
+      border-bottom: 1px solid #444;
+      padding-bottom: 15px;
+      margin-bottom: 15px;
+    }
+    .question {
+      font-weight: bold;
+      margin-bottom: 10px;
+      color: #f44336;
+    }
+    .answer {
+      margin-bottom: 10px;
+    }
+    .sources {
+      font-size: 14px;
+      color: #aaa;
+      margin-top: 10px;
+    }
+    .source-item {
+      margin-bottom: 5px;
+    }
+    .error-message {
+      background-color: rgba(255, 0, 0, 0.1);
+      border-left: 4px solid #f44336;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      margin-right: 10px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <h1>RFI Powered by Channel Factory</h1>
+    
+    <div class="chat-container">
+      <div class="question-form">
+        <textarea id="questionInput" placeholder="Ask anything..."></textarea>
+        <button id="sendButton" class="send-button">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M4 2L16 10L4 18V2Z" fill="#FFFFFF"></path>
+          </svg>
+        </button>
+      </div>
+      
+      <div id="loadingIndicator" class="loading" style="display: none;"><span class="spinner"></span>Processing your question...</div>
+      
+      <div id="errorMessage" class="error-message" style="display: none;"></div>
+      
+      <div id="responseContainer" class="response-container"></div>
+    </div>
+    
+    <div id="historyContainer"></div>
+    
+    <div class="note">
+      <p>This demo connects to the Channel Factory RFI API hosted on Render.com.</p>
+      <p>API Endpoint: <span id="apiUrl"></span></p>
+      <p><strong>Note:</strong> First query may take 10-15 seconds to process as the system warms up.</p>
+    </div>
+  </div>
+
+  <script>
+    const API_URL = 'https://channel-factory-rfi.onrender.com';
+    document.getElementById('apiUrl').textContent = API_URL;
+    
+    const questionInput = document.getElementById('questionInput');
+    const sendButton = document.getElementById('sendButton');
+    const responseContainer = document.getElementById('responseContainer');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const errorMessage = document.getElementById('errorMessage');
+    const historyContainer = document.getElementById('historyContainer');
+    
+    // Conversation history
+    let conversationHistory = [];
+    
+    // Adjust textarea height based on content
+    questionInput.addEventListener('input', function() {
+      this.style.height = 'auto';
+      this.style.height = (this.scrollHeight) + 'px';
+    });
+    
+    // Handle Enter key (Shift+Enter for new line)
+    questionInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendQuestion();
+      }
+    });
+    
+    // Send button click handler
+    sendButton.addEventListener('click', sendQuestion);
+    
+    // Function to send question to API with timeout
+    async function sendQuestion() {
+      const question = questionInput.value.trim();
+      if (!question) return;
+      
+      // Clear previous response and show loading
+      responseContainer.textContent = '';
+      errorMessage.style.display = 'none';
+      loadingIndicator.style.display = 'block';
+      
+      // Disable send button during processing
+      sendButton.disabled = true;
+      
+      try {
+        // Set a longer timeout (45 seconds) for the fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+        
+        // Send request to API
+        const response = await fetch(`${API_URL}/search`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Origin': window.location.origin
+          },
+          body: JSON.stringify({ question }),
+          signal: controller.signal
+        });
+        
+        // Clear the timeout
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Add to history
+        conversationHistory.unshift({
+          question,
+          answer: data.response,
+          sources: data.sources || []
+        });
+        
+        // Display response
+        responseContainer.textContent = data.response;
+        
+        // Update history display
+        updateHistoryDisplay();
+        
+        // Clear input
+        questionInput.value = '';
+        questionInput.style.height = 'auto';
+        
+      } catch (error) {
+        console.error('Error:', error);
+        if (error.name === 'AbortError') {
+          errorMessage.textContent = 'Error: Request timed out. The server might be busy or in a cold start. Please try again.';
+        } else {
+          errorMessage.textContent = `Error: ${error.message || 'Failed to get response'}`;
+        }
+        errorMessage.style.display = 'block';
+      } finally {
+        loadingIndicator.style.display = 'none';
+        sendButton.disabled = false;
+      }
+    }
+    
+    // Function to update history display
+    function updateHistoryDisplay() {
+      // Skip the first item as it's already displayed in the response container
+      const historyItems = conversationHistory.slice(1);
+      
+      if (historyItems.length === 0) {
+        historyContainer.innerHTML = '';
+        return;
+      }
+      
+      historyContainer.innerHTML = historyItems.map((item, index) => `
+        <div class="history-item">
+          <div class="question">${escapeHtml(item.question)}</div>
+          <div class="answer">${escapeHtml(item.answer)}</div>
+          ${item.sources && item.sources.length > 0 ? `
+            <div class="sources">
+              <div>Sources:</div>
+              ${item.sources.map(source => `
+                <div class="source-item">- ${escapeHtml(source.file || source)}</div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+    
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // Check API health on load with retry
+    async function checkApiHealth(retries = 3) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const response = await fetch(`${API_URL}/health`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log('API Health:', data);
+        } else {
+          throw new Error(`API health check failed: ${response.status}`);
+        }
+      } catch (error) {
+        console.error('API Health Error:', error);
+        if (retries > 0) {
+          console.log(`Retrying health check in 3 seconds... (${retries} attempts left)`);
+          setTimeout(() => checkApiHealth(retries - 1), 3000);
+        } else {
+          errorMessage.textContent = `API Connection Warning: ${error.message}. The API might be waking up from a cold start. You can still try asking a question, but the first request may take longer than usual.`;
+          errorMessage.style.display = 'block';
+        }
+      }
+    }
+    
+    // Initialize
+    checkApiHealth();
+  </script>
+</body>
+</html>
